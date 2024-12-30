@@ -65,7 +65,11 @@ export class Rbac {
 	}
 
 	/** Will initialize role, add permissions, and assing to group. */
-	addRole(name: string, permissions: string[] = [], groupNames: string[] = []) {
+	addRole(
+		name: string,
+		permissions: string[] = [],
+		groupNames: string[] = []
+	): Rbac {
 		const role = this.#initRole(name);
 		permissions.forEach((permName) => role.permissions.add(permName));
 		groupNames.forEach((groupName) => {
@@ -78,7 +82,7 @@ export class Rbac {
 	}
 
 	/** Will remove permission from role (if exists) */
-	removeRolePermissions(name: string, permissions: string[] = []) {
+	removeRolePermissions(name: string, permissions: string[] = []): Rbac {
 		if (this.#roles.has(name)) {
 			const role = this.#roles.get(name);
 			permissions.forEach((permName) => role!.permissions.delete(permName));
@@ -87,14 +91,14 @@ export class Rbac {
 	}
 
 	/** Will initialize group and add permissions to it. */
-	addGroup(name: string, permissions: string[] = []) {
+	addGroup(name: string, permissions: string[] = []): Rbac {
 		const group = this.#initGroup(name);
 		permissions.forEach((permName) => group.permissions.add(permName));
 		return this;
 	}
 
 	/** Will remove permission from group (if exists) */
-	removeGroupPermissions(name: string, permissions: string[] = []) {
+	removeGroupPermissions(name: string, permissions: string[] = []): Rbac {
 		if (this.#groups.has(name)) {
 			const group = this.#groups.get(name);
 			permissions.forEach((permName) => group!.permissions.delete(permName));
@@ -103,7 +107,7 @@ export class Rbac {
 	}
 
 	/** Will check if given roleName has give permission. */
-	hasPermission(roleName: string, permission: string) {
+	hasPermission(roleName: string, permission: string): boolean {
 		const role = this.#roles.get(roleName);
 		if (!role) return false;
 
@@ -145,7 +149,7 @@ export class Rbac {
 	}
 
 	/** Will create a new instance from dump */
-	static restore(dump: string | RbacDump) {
+	static restore(dump: string | RbacDump): Rbac {
 		const rbac = new Rbac();
 		try {
 			const data: RbacDump = typeof dump === "string" ? JSON.parse(dump) : dump;

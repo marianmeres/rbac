@@ -1,5 +1,5 @@
+import { assert, assertThrows } from "@std/assert";
 import { Rbac } from "../rbac.ts";
-import { assert, assertEquals, assertThrows } from "@std/assert";
 
 const doTest = (rbac: Rbac) => {
 	// true
@@ -29,6 +29,10 @@ Deno.test("roles", () => {
 
 	doTest(rbac);
 	doTest(Rbac.restore(rbac.dump()));
+
+	// now remove role perm
+	rbac.removeRolePermissions("role1", ["action1"]);
+	assert(!rbac.hasPermission("role1", "action1"));
 });
 
 Deno.test("groups", () => {
@@ -44,7 +48,9 @@ Deno.test("groups", () => {
 	doTest(rbac);
 	doTest(Rbac.restore(rbac.dump()));
 
-	// console.log(rbac.toJSON());
+	// now remove group perm
+	rbac.removeGroupPermissions("group1", ["action1"]);
+	assert(!rbac.hasPermission("role1", "action1"));
 });
 
 Deno.test("roles and groups", () => {
