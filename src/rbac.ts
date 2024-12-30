@@ -22,28 +22,34 @@ interface RbacDump {
  * @example
  * ```ts
  * const rbac = new Rbac();
+ *
+ * // let's say we're modeling the actual permission value as an "entity:action"...
  * rbac
  *     // define group permissions
- *     .addGroup("admins", ["create:*", "read:*", "update:*", "delete:*"])
- *     .addGroup("editors", ["read:articles", "update:articles"])
+ *     .addGroup("admins", ["*:*"])
+ *     .addGroup("editors", ["article:read", "article:update"])
  *     // define roles with permissions and group memberships
  *     .addRole("admin", [], ["admins"])
  *     .addRole("editor", [], ["editors"])
- *     .addRole("user", ["read:articles"]);
+ *     .addRole("user", ["article:read"], []);
  *
  * // check permissions
- * assert(rbac.hasPermission("admin", "update:*"));
- * assert(!rbac.hasPermission("editor", "update:*"));
- * assert(rbac.hasPermission("editor", "update:articles"));
- * assert(!rbac.hasPermission("user", "update:articles"));
+ * assert(rbac.hasPermission("admin", "*:*"));
+ * assert(!rbac.hasPermission("editor", "article:*"));
+ * assert(rbac.hasPermission("editor", "article:update"));
+ * assert(!rbac.hasPermission("user", "article:update"));
  *
- * // configuration can be serialized to string
+ * // configuration can be serialized (and restored)
  * const dump = rbac.dump();
  * assert(typeof dump === "string");
- *
- * // now restore from dump
  * const rbac2 = Rbac.restore(dump);
- * assert(rbac2.hasPermission("editor", "update:articles"));
+ * assert(rbac2.hasPermission("editor", "article:update"));
+ *
+ * // example helper using `hasSomePermission` api
+ * const canReadArticle = (role: string) =>
+ *     rbac.hasSomePermission(role, ["*:*", "article:*", "article:read"]);
+ *
+ * assert(canReadArticle("user"));
  * ```
  */
 export class Rbac {
@@ -108,21 +114,37 @@ export class Rbac {
 		return this;
 	}
 
-	/** Will check if given roleName has give permission. */
-	hasPermission(roleName: string, permission: string): boolean {
-		const role = this.#roles.get(roleName);
-		if (!role) return false;
+	/** Will return the full set of permissions for the given roleName. */
+	getPermissions(roleName: string): Set<string> {
+		let out = new Set<string>();
 
-		// 1. check groups the given role is a member of
-		for (const groupName of [...role.memberOf]) {
+		const role = this.#roles.get(roleName);
+		if (!role) return out;
+
+		// 1. collect groups permission the given role is a member of
+		for (const groupName of role.memberOf) {
 			const group = this.#groups.get(groupName);
-			if (group && group.permissions.has(permission)) {
-				return true;
+			if (group) {
+				out = out.union(group.permissions);
 			}
 		}
 
-		// 2. check own
-		return role.permissions.has(permission);
+		// 2. union with its own
+		return out.union(role.permissions);
+	}
+
+	/** Will check if the given roleName has the given permission. */
+	hasPermission(roleName: string, permission: string): boolean {
+		return this.getPermissions(roleName).has(permission);
+	}
+
+	/** Will check if the given roleName has _some_ (at least one) of the given permissions. */
+	hasSomePermission(roleName: string, permissions: string[]): boolean {
+		const all = this.getPermissions(roleName);
+		for (const perm of permissions) {
+			if (all.has(perm)) return true;
+		}
+		return false;
 	}
 
 	/** Returns internal data structure as a plain object. */

@@ -74,25 +74,31 @@ Deno.test("group must exist before being added to role", () => {
 Deno.test("readme example", () => {
 	const rbac = new Rbac();
 
+	// let's say we're modeling the actual permission value as an "entity:action"...
 	rbac
 		// define group permissions
-		.addGroup("admins", ["create:*", "read:*", "update:*", "delete:*"])
-		.addGroup("editors", ["read:articles", "update:articles"])
+		.addGroup("admins", ["*:*"])
+		.addGroup("editors", ["article:read", "article:update"])
 		// define roles with permissions and group memberships
 		.addRole("admin", [], ["admins"])
 		.addRole("editor", [], ["editors"])
-		.addRole("user", ["read:articles"]);
+		.addRole("user", ["article:read"], []);
 
 	// check permissions
-	assert(rbac.hasPermission("admin", "update:*"));
-	assert(!rbac.hasPermission("editor", "update:*"));
-	assert(rbac.hasPermission("editor", "update:articles"));
-	assert(!rbac.hasPermission("user", "update:articles"));
+	assert(rbac.hasPermission("admin", "*:*"));
+	assert(!rbac.hasPermission("editor", "article:*"));
+	assert(rbac.hasPermission("editor", "article:update"));
+	assert(!rbac.hasPermission("user", "article:update"));
 
 	// configuration can be serialized (and restored)
 	const dump = rbac.dump();
 	assert(typeof dump === "string");
-
 	const rbac2 = Rbac.restore(dump);
-	assert(rbac2.hasPermission("editor", "update:articles"));
+	assert(rbac2.hasPermission("editor", "article:update"));
+
+	// example helper using some
+	const canReadArticle = (role: string) =>
+		rbac.hasSomePermission(role, ["*:*", "article:*", "article:read"]);
+
+	assert(canReadArticle("user"));
 });
