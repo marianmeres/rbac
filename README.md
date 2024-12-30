@@ -1,6 +1,6 @@
 # @marianmeres/rbac
 
-Basic Role-Based-Access-Credentials manager.
+Basic Role-Based-Access-Control manager.
 
 ## Instalation
 

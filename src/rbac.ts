@@ -15,7 +15,7 @@ interface RbacDump {
 }
 
 /**
- * Basic Role-Based-Access-Credentials manager.
+ * Basic Role-Based-Access-Control manager.
  *
  * @example
  * ```ts
