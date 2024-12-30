@@ -1,10 +1,12 @@
 // deno-lint-ignore-file no-explicit-any
 
+/** Internal roles data structure */
 export interface RbacRoleInternal {
 	permissions: Set<string>;
 	memberOf: Set<string>;
 }
 
+/** Internal groups data structure */
 export interface RbacGroupInternal {
 	permissions: Set<string>;
 }
@@ -81,7 +83,7 @@ export class Rbac {
 		return this;
 	}
 
-	/** Will remove permission from role (if exists) */
+	/** Will remove permission from role (if exists). */
 	removeRolePermissions(name: string, permissions: string[] = []): Rbac {
 		if (this.#roles.has(name)) {
 			const role = this.#roles.get(name);
@@ -97,7 +99,7 @@ export class Rbac {
 		return this;
 	}
 
-	/** Will remove permission from group (if exists) */
+	/** Will remove permission from group (if exists). */
 	removeGroupPermissions(name: string, permissions: string[] = []): Rbac {
 		if (this.#groups.has(name)) {
 			const group = this.#groups.get(name);
@@ -123,7 +125,7 @@ export class Rbac {
 		return role.permissions.has(permission);
 	}
 
-	/** Returns internal data structure as a plain object */
+	/** Returns internal data structure as a plain object. */
 	toJSON(): RbacDump {
 		const serialize = (
 			map: Map<string, RbacRoleInternal | RbacGroupInternal>
@@ -143,12 +145,12 @@ export class Rbac {
 		};
 	}
 
-	/** Returns internal data structure as a json string */
+	/** Returns internal data structure as a json string. */
 	dump(): string {
 		return JSON.stringify(this);
 	}
 
-	/** Will create a new instance from dump */
+	/** Will create a new instance from dump. */
 	static restore(dump: string | RbacDump): Rbac {
 		const rbac = new Rbac();
 		try {
