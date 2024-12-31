@@ -12,8 +12,8 @@ export interface RbacGroupInternal {
 }
 
 interface RbacDump {
-	roles: Record<string, Record<"permissions" | "memberOf", string[]>>;
-	groups: Record<string, Record<"permissions", string[]>>;
+	roles: Record<string, Partial<Record<"permissions" | "memberOf", string[]>>>;
+	groups: Record<string, Partial<Record<"permissions", string[]>>>;
 }
 
 /**
@@ -173,16 +173,17 @@ export class Rbac {
 	}
 
 	/** Will create a new instance from dump. */
-	static restore(dump: string | RbacDump): Rbac {
+	static restore(dump: string | Partial<RbacDump>): Rbac {
 		const rbac = new Rbac();
 		try {
-			const data: RbacDump = typeof dump === "string" ? JSON.parse(dump) : dump;
+			const data: Partial<RbacDump> =
+				typeof dump === "string" ? JSON.parse(dump) : dump;
 
-			Object.entries(data.groups).forEach(([name, o]) => {
+			Object.entries(data.groups || {}).forEach(([name, o]) => {
 				rbac.addGroup(name, o.permissions);
 			});
 
-			Object.entries(data.roles).forEach(([name, o]) => {
+			Object.entries(data.roles || {}).forEach(([name, o]) => {
 				rbac.addRole(name, o.permissions, o.memberOf);
 			});
 		} catch (_e: any) {
