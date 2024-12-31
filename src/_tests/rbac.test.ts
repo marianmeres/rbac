@@ -66,6 +66,21 @@ Deno.test("roles and groups", () => {
 	doTest(Rbac.restore(rbac.dump()));
 });
 
+Deno.test("manual restore", () => {
+	// just for the sake of visual explicitness...
+	const rbac = Rbac.restore({
+		groups: {
+			group1: { permissions: ["action1", "action2"] },
+			group2: { permissions: ["action4"] },
+		},
+		roles: {
+			role1: { permissions: ["action3"], memberOf: ["group1"] },
+			role2: { permissions: ["action1"], memberOf: ["group2"] },
+		},
+	});
+	doTest(rbac);
+});
+
 Deno.test("group must exist before being added to role", () => {
 	const rbac = new Rbac();
 	assertThrows(() => rbac.addRole("role", [], ["some"]));
