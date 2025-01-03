@@ -2,7 +2,7 @@
 
 Basic Role-Based-Access-Control manager.
 
-## Instalation
+## Installation
 
 deno
 
