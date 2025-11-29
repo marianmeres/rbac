@@ -1,11 +1,12 @@
 # @marianmeres/rbac
 
-Lightweight, type-safe Role-Based Access Control (RBAC) library for managing permissions through roles and groups.
+Lightweight, type-safe Role-Based Access Control (RBAC) library for managing permissions through roles and groups. Includes optional Attribute-Based Access Control (ABAC) for fine-grained resource and context-based permissions.
 
 ## Features
 
 - **Simple API** - Fluent, chainable interface for easy configuration
 - **Groups & Roles** - Organize permissions hierarchically with group inheritance
+- **ABAC Support** - Optional rule-based conditional access control for ownership and resource checks
 - **Type-safe** - Full TypeScript support with strict typing
 - **Serializable** - Export and restore configurations as JSON
 - **Zero dependencies** - Minimal footprint
