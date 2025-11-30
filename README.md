@@ -225,3 +225,10 @@ rbac.can({ role: "analyst" }, "data:export", {}, { timestamp: Date.now() });
 - Duplicate permissions are automatically deduplicated
 - Rules are **not serialized** - you must re-add them after `restore()`
 - ABAC rules are optional - use only when needed
+
+## Package Identity
+
+- **Name:** @marianmeres/rbac
+- **Author:** Marian Meres
+- **Repository:** https://github.com/marianmeres/rbac
+- **License:** MIT
