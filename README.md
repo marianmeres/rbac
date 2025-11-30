@@ -1,5 +1,8 @@
 # @marianmeres/rbac
 
+[![NPM version](https://img.shields.io/npm/v/@marianmeres/rbac.svg)](https://www.npmjs.com/package/@marianmeres/rbac)
+[![JSR version](https://jsr.io/badges/@marianmeres/rbac)](https://jsr.io/@marianmeres/rbac)
+
 Lightweight, type-safe Role-Based Access Control (RBAC) library for managing permissions through roles and groups. Includes optional Attribute-Based Access Control (ABAC) for fine-grained resource and context-based permissions.
 
 ## Features
