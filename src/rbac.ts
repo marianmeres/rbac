@@ -11,8 +11,14 @@ export interface RbacGroupInternal {
 	permissions: Set<string>;
 }
 
-interface RbacDump {
+/**
+ * Serializable representation of the RBAC configuration.
+ * Used for exporting and restoring RBAC state.
+ */
+export interface RbacDump {
+	/** Map of role names to their permissions and group memberships */
 	roles: Record<string, Partial<Record<"permissions" | "memberOf", string[]>>>;
+	/** Map of group names to their permissions */
 	groups: Record<string, Partial<Record<"permissions", string[]>>>;
 }
 
