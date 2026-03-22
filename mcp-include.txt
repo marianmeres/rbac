@@ -1,0 +1,1 @@
+TypeScript RBAC library with optional ABAC support. Provides roles, groups, permissions (exact match), and rule-based access control. Zero dependencies, works in Deno, Node.js, and browsers.
