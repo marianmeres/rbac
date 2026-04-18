@@ -225,7 +225,7 @@ Deno.test("addRoleToGroup throws if group doesn't exist", () => {
 	assertThrows(
 		() => rbac.addRoleToGroup("role", "nonexistent"),
 		Error,
-		"Group 'nonexistent' does not exist"
+		"Group 'nonexistent' does not exist",
 	);
 });
 
@@ -255,11 +255,13 @@ Deno.test("hasSomePermission returns false when no permissions match", () => {
 	const rbac = new Rbac();
 	rbac.addRole("user", ["article:read"]);
 
-	assert(!rbac.hasSomePermission("user", [
-		"article:update",
-		"article:delete",
-		"admin:*"
-	]));
+	assert(
+		!rbac.hasSomePermission("user", [
+			"article:update",
+			"article:delete",
+			"admin:*",
+		]),
+	);
 });
 
 Deno.test("edge case: empty role and group names", () => {
@@ -309,11 +311,11 @@ Deno.test("edge case: special characters in names", () => {
 		"role.with.dots",
 		"role with spaces",
 		"role@email.com",
-		"роль",  // Cyrillic
-		"角色",  // Chinese
+		"роль", // Cyrillic
+		"角色", // Chinese
 	];
 
-	specialNames.forEach(name => {
+	specialNames.forEach((name) => {
 		rbac.addRole(name, [`${name}:action`]);
 		assert(rbac.hasRole(name));
 		assert(rbac.hasPermission(name, `${name}:action`));
@@ -584,7 +586,11 @@ Deno.test("ABAC: complex real-world scenario", () => {
 
 	// Setup roles
 	rbac
-		.addGroup("content-creators", ["article:create", "article:read", "article:update"])
+		.addGroup("content-creators", [
+			"article:create",
+			"article:read",
+			"article:update",
+		])
 		.addGroup("moderators", ["comment:moderate", "article:publish"])
 		.addRole("author", [], ["content-creators"])
 		.addRole("editor", ["article:publish"], ["content-creators"])
@@ -630,4 +636,416 @@ Deno.test("ABAC: complex real-world scenario", () => {
 	assert(rbac.can(admin, "article:update", aliceDraft));
 	assert(rbac.can(admin, "article:publish", aliceDraft)); // Can publish anything
 	assert(rbac.can(admin, "article:publish", reviewedArticle));
+});
+
+// -----------------------------------------------------------------------------
+// New APIs (v2.1)
+// -----------------------------------------------------------------------------
+
+Deno.test("constructor accepts initial dump (object and string)", () => {
+	const src = new Rbac()
+		.addGroup("g1", ["p1"])
+		.addRole("r1", ["p2"], ["g1"]);
+
+	// Object form
+	const copy1 = new Rbac(src.toJSON());
+	assert(copy1.hasPermission("r1", "p1"));
+	assert(copy1.hasPermission("r1", "p2"));
+
+	// String form
+	const copy2 = new Rbac(src.dump());
+	assert(copy2.hasPermission("r1", "p1"));
+	assert(copy2.hasPermission("r1", "p2"));
+
+	// No-arg still works
+	const empty = new Rbac();
+	assert(empty.getRoles().length === 0);
+	assert(empty.getGroups().length === 0);
+});
+
+Deno.test("restore() preserves error cause for invalid JSON", () => {
+	try {
+		Rbac.restore("not json");
+		throw new Error("should have thrown");
+	} catch (e) {
+		assert(e instanceof Error);
+		assert(e.message.includes("Unable to restore dump"));
+		assert(e.cause !== undefined);
+	}
+});
+
+Deno.test("restore() preserves error cause for missing group reference", () => {
+	try {
+		Rbac.restore({
+			groups: {},
+			roles: { r1: { memberOf: ["missing"] } },
+		});
+		throw new Error("should have thrown");
+	} catch (e) {
+		assert(e instanceof Error);
+		assert(e.message.includes("Unable to restore dump"));
+		assert(e.cause instanceof Error);
+		assert((e.cause as Error).message.includes("'missing'"));
+	}
+});
+
+Deno.test("group-to-group: addGroupToGroup inherits parent permissions", () => {
+	const rbac = new Rbac()
+		.addGroup("viewers", ["article:read"])
+		.addGroup("editors", ["article:update"])
+		.addGroupToGroup("editors", "viewers")
+		.addRole("editor", [], ["editors"]);
+
+	assert(rbac.hasPermission("editor", "article:read")); // inherited
+	assert(rbac.hasPermission("editor", "article:update")); // direct on editors
+});
+
+Deno.test("group-to-group: multi-level nesting", () => {
+	const rbac = new Rbac()
+		.addGroup("a", ["p:a"])
+		.addGroup("b", ["p:b"])
+		.addGroup("c", ["p:c"])
+		.addGroupToGroup("b", "a")
+		.addGroupToGroup("c", "b")
+		.addRole("user", [], ["c"]);
+
+	assert(rbac.hasPermission("user", "p:a"));
+	assert(rbac.hasPermission("user", "p:b"));
+	assert(rbac.hasPermission("user", "p:c"));
+
+	const perms = rbac.getPermissions("user");
+	assert(perms.size === 3);
+});
+
+Deno.test("group-to-group: cycles are tolerated at query time", () => {
+	const rbac = new Rbac()
+		.addGroup("a", ["p:a"])
+		.addGroup("b", ["p:b"])
+		.addGroupToGroup("a", "b")
+		.addGroupToGroup("b", "a") // cycle
+		.addRole("user", [], ["a"]);
+
+	// Must not infinite loop
+	assert(rbac.hasPermission("user", "p:a"));
+	assert(rbac.hasPermission("user", "p:b"));
+	assert(!rbac.hasPermission("user", "p:x"));
+	const perms = rbac.getPermissions("user");
+	assert(perms.size === 2);
+});
+
+Deno.test("group-to-group: addGroupToGroup throws for self-membership", () => {
+	const rbac = new Rbac().addGroup("a");
+	assertThrows(() => rbac.addGroupToGroup("a", "a"));
+});
+
+Deno.test("group-to-group: addGroupToGroup throws for missing groups", () => {
+	const rbac = new Rbac().addGroup("a");
+	assertThrows(() => rbac.addGroupToGroup("a", "nope"));
+	assertThrows(() => rbac.addGroupToGroup("nope", "a"));
+});
+
+Deno.test("group-to-group: removeGroupFromGroup detaches parent", () => {
+	const rbac = new Rbac()
+		.addGroup("p", ["x"])
+		.addGroup("c", [])
+		.addGroupToGroup("c", "p")
+		.addRole("r", [], ["c"]);
+
+	assert(rbac.hasPermission("r", "x"));
+	rbac.removeGroupFromGroup("c", "p");
+	assert(!rbac.hasPermission("r", "x"));
+});
+
+Deno.test("group-to-group: removeGroup cascades to other groups' memberOf", () => {
+	const rbac = new Rbac()
+		.addGroup("p", ["x"])
+		.addGroup("c", [])
+		.addGroupToGroup("c", "p")
+		.addRole("r", [], ["c"]);
+
+	assert(rbac.hasPermission("r", "x"));
+	rbac.removeGroup("p");
+	assert(!rbac.hasPermission("r", "x"));
+	assert(rbac.getGroupParents("c").length === 0);
+});
+
+Deno.test("group-to-group: serialization round-trips memberOf", () => {
+	const rbac = new Rbac()
+		.addGroup("parent", ["parent:p"])
+		.addGroup("child", ["child:p"])
+		.addGroupToGroup("child", "parent")
+		.addRole("user", [], ["child"]);
+
+	const restored = Rbac.restore(rbac.dump());
+	assert(restored.hasPermission("user", "parent:p"));
+	assert(restored.hasPermission("user", "child:p"));
+	assert(restored.getGroupParents("child").includes("parent"));
+});
+
+Deno.test("hasEveryPermission: AND semantics", () => {
+	const rbac = new Rbac().addRole("r", ["a", "b", "c"]);
+	assert(rbac.hasEveryPermission("r", ["a", "b"]));
+	assert(rbac.hasEveryPermission("r", ["a", "b", "c"]));
+	assert(!rbac.hasEveryPermission("r", ["a", "d"]));
+	// Empty list → vacuously true
+	assert(rbac.hasEveryPermission("r", []));
+	// Unknown role
+	assert(!rbac.hasEveryPermission("nope", ["a"]));
+});
+
+Deno.test("getGroupPermissions: direct vs transitive", () => {
+	const rbac = new Rbac()
+		.addGroup("parent", ["p:parent"])
+		.addGroup("child", ["p:child"])
+		.addGroupToGroup("child", "parent");
+
+	const direct = rbac.getGroupPermissions("child", false);
+	assert(direct.size === 1);
+	assert(direct.has("p:child"));
+
+	const all = rbac.getGroupPermissions("child");
+	assert(all.size === 2);
+	assert(all.has("p:child") && all.has("p:parent"));
+
+	assert(rbac.getGroupPermissions("missing").size === 0);
+});
+
+Deno.test("getRoleGroups: direct vs transitive", () => {
+	const rbac = new Rbac()
+		.addGroup("top")
+		.addGroup("mid")
+		.addGroup("low")
+		.addGroupToGroup("low", "mid")
+		.addGroupToGroup("mid", "top")
+		.addRole("user", [], ["low"]);
+
+	const direct = rbac.getRoleGroups("user");
+	assert(direct.length === 1);
+	assert(direct.includes("low"));
+
+	const all = rbac.getRoleGroups("user", true);
+	assert(all.length === 3);
+	assert(all.includes("low") && all.includes("mid") && all.includes("top"));
+
+	// unknown role
+	assert(rbac.getRoleGroups("nope").length === 0);
+});
+
+Deno.test("getGroupRoles returns direct role members", () => {
+	const rbac = new Rbac()
+		.addGroup("g1")
+		.addGroup("g2")
+		.addRole("a", [], ["g1"])
+		.addRole("b", [], ["g1", "g2"])
+		.addRole("c", [], ["g2"]);
+
+	const g1Roles = rbac.getGroupRoles("g1");
+	assert(g1Roles.length === 2);
+	assert(g1Roles.includes("a"));
+	assert(g1Roles.includes("b"));
+
+	assert(rbac.getGroupRoles("none").length === 0);
+});
+
+Deno.test("getGroupParents / getGroupChildren", () => {
+	const rbac = new Rbac()
+		.addGroup("top")
+		.addGroup("mid")
+		.addGroup("low")
+		.addGroupToGroup("mid", "top")
+		.addGroupToGroup("low", "mid");
+
+	assert(rbac.getGroupParents("low").length === 1);
+	assert(rbac.getGroupParents("low")[0] === "mid");
+	assert(rbac.getGroupParents("top").length === 0);
+
+	assert(rbac.getGroupChildren("top").length === 1);
+	assert(rbac.getGroupChildren("top")[0] === "mid");
+	assert(rbac.getGroupChildren("low").length === 0);
+
+	assert(rbac.getGroupParents("none").length === 0);
+});
+
+Deno.test("explainPermission: direct role permission", () => {
+	const rbac = new Rbac().addRole("r", ["p1"]);
+	const r = rbac.explainPermission("r", "p1");
+	assert(r.granted);
+	assert(r.source === "role");
+	assert(r.path.length === 1 && r.path[0] === "r");
+});
+
+Deno.test("explainPermission: inherited via nested groups", () => {
+	const rbac = new Rbac()
+		.addGroup("top", ["p1"])
+		.addGroup("mid")
+		.addGroup("low")
+		.addGroupToGroup("mid", "top")
+		.addGroupToGroup("low", "mid")
+		.addRole("user", [], ["low"]);
+
+	const r = rbac.explainPermission("user", "p1");
+	assert(r.granted);
+	assert(r.source === "group");
+	// path: [role, ...groups from closest to source]
+	assert(JSON.stringify(r.path) === JSON.stringify(["user", "low", "mid", "top"]));
+});
+
+Deno.test("explainPermission: not granted", () => {
+	const rbac = new Rbac().addRole("r");
+	const r = rbac.explainPermission("r", "missing");
+	assert(!r.granted);
+	assert(r.source === null);
+	assert(r.path.length === 0);
+
+	const r2 = rbac.explainPermission("nope", "x");
+	assert(!r2.granted);
+});
+
+Deno.test("appendRule: AND semantics of rule chain", () => {
+	const rbac = new Rbac()
+		.addRole("user", ["p"])
+		.appendRule("p", () => true)
+		.appendRule("p", () => true);
+
+	assert(rbac.can({ role: "user" }, "p"));
+
+	rbac.appendRule("p", () => false);
+	assert(!rbac.can({ role: "user" }, "p"));
+});
+
+Deno.test("appendRule acts as addRule when chain is empty", () => {
+	const rbac = new Rbac()
+		.addRole("user", ["p"])
+		.appendRule("p", () => true);
+	assert(rbac.hasRule("p"));
+	assert(rbac.can({ role: "user" }, "p"));
+});
+
+Deno.test("addRule replaces entire chain", () => {
+	const rbac = new Rbac()
+		.addRole("user", ["p"])
+		.appendRule("p", () => true)
+		.appendRule("p", () => true);
+
+	// Chain has 2 rules — now reset
+	rbac.addRule("p", () => false);
+	assert(!rbac.can({ role: "user" }, "p"));
+});
+
+Deno.test("can() accepts multi-role subject", () => {
+	const rbac = new Rbac()
+		.addRole("reader", ["article:read"])
+		.addRole("writer", ["article:write"]);
+
+	assert(rbac.can({ role: ["reader", "writer"] }, "article:read"));
+	assert(rbac.can({ role: ["reader", "writer"] }, "article:write"));
+	assert(!rbac.can({ role: ["reader", "writer"] }, "article:delete"));
+	assert(!rbac.can({ role: ["unknown"] }, "article:read"));
+	// Empty role list → no permission
+	assert(!rbac.can({ role: [] }, "article:read"));
+});
+
+Deno.test("can() multi-role: rules receive the full role array", () => {
+	const rbac = new Rbac()
+		.addRole("reviewer", ["article:approve"])
+		.addRule("article:approve", (subject) => {
+			const roles = Array.isArray(subject.role) ? subject.role : [subject.role];
+			return roles.includes("reviewer");
+		});
+
+	assert(rbac.can({ role: ["reviewer", "user"] }, "article:approve"));
+	assert(!rbac.can({ role: ["user"] }, "article:approve")); // fails base RBAC
+});
+
+Deno.test("clone: deep copy with rules", () => {
+	const rbac = new Rbac()
+		.addGroup("g", ["p"])
+		.addRole("r", [], ["g"])
+		.addRule("p", (subject) => subject.allowed === true);
+
+	const clone = rbac.clone();
+
+	assert(clone.hasPermission("r", "p"));
+	assert(clone.hasRule("p"));
+	assert(clone.can({ role: "r", allowed: true }, "p"));
+	assert(!clone.can({ role: "r", allowed: false }, "p"));
+
+	// Mutations on clone don't leak to source
+	clone.addRole("extra", ["x"]);
+	assert(!rbac.hasRole("extra"));
+
+	// And vice versa
+	rbac.removeRole("r");
+	assert(clone.hasRole("r"));
+});
+
+Deno.test("dump includes rules list; restore exposes missing rules", () => {
+	const rbac = new Rbac()
+		.addRole("user", ["p1", "p2"])
+		.addRule("p1", () => true)
+		.addRule("p2", () => true);
+
+	const data = rbac.toJSON();
+	assert(Array.isArray(data.rules));
+	assert(data.rules!.length === 2);
+	assert(data.rules!.includes("p1"));
+	assert(data.rules!.includes("p2"));
+
+	const restored = Rbac.restore(data);
+	// Rules themselves are not serialized
+	assert(!restored.hasRule("p1"));
+	assert(!restored.hasRule("p2"));
+
+	const missing = restored.getMissingRules();
+	assert(missing.length === 2);
+	assert(missing.includes("p1"));
+	assert(missing.includes("p2"));
+
+	// Re-adding clears from expected list
+	restored.addRule("p1", () => true);
+	assert(restored.getMissingRules().length === 1);
+	restored.addRule("p2", () => true);
+	assert(restored.getMissingRules().length === 0);
+});
+
+Deno.test("dump omits rules field when no rules registered", () => {
+	const rbac = new Rbac().addRole("user", ["p"]);
+	const data = rbac.toJSON();
+	assert(data.rules === undefined);
+});
+
+Deno.test("getMissingRules is empty for fresh instance", () => {
+	const rbac = new Rbac();
+	assert(rbac.getMissingRules().length === 0);
+});
+
+Deno.test("hasRule is false for empty chains", () => {
+	const rbac = new Rbac();
+	assert(!rbac.hasRule("p"));
+	rbac.addRule("p", () => true);
+	assert(rbac.hasRule("p"));
+	rbac.removeRule("p");
+	assert(!rbac.hasRule("p"));
+});
+
+Deno.test("generic rule types narrow subject/resource (compile-time)", () => {
+	interface Subject {
+		role: string;
+		id: number;
+	}
+	interface Article {
+		authorId: number;
+		status: "draft" | "published";
+	}
+
+	const rbac = new Rbac();
+	rbac.addRole("author", ["article:update"]);
+	const rule: import("../src/rbac.ts").RbacRuleFunction<Subject, Article> = (
+		subject,
+		resource,
+	) => resource?.authorId === subject.id;
+	rbac.addRule("article:update", rule as never);
+
+	assert(rbac.can({ role: "author", id: 1 }, "article:update", { authorId: 1 }));
+	assert(!rbac.can({ role: "author", id: 1 }, "article:update", { authorId: 2 }));
 });

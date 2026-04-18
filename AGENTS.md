@@ -6,7 +6,7 @@ Machine-readable context for AI agents working with this codebase.
 
 ```yaml
 name: "@marianmeres/rbac"
-version: "2.0.2"
+version: "2.1.0"
 license: MIT
 author: Marian Meres
 repository: https://github.com/marianmeres/rbac
@@ -14,14 +14,16 @@ repository: https://github.com/marianmeres/rbac
 
 ## Purpose
 
-Role-Based Access Control (RBAC) library with optional Attribute-Based Access Control (ABAC) support. Manages permissions through roles and groups.
+Role-Based Access Control (RBAC) library with optional Attribute-Based Access
+Control (ABAC) support. Manages permissions through roles and groups. Supports
+group-to-group inheritance and multi-role subjects.
 
 ## Technology Stack
 
 - Language: TypeScript
 - Runtime: Deno (primary), Node.js, Browser
-- Build: deno task npm:build (uses @marianmeres/npmbuild)
-- Test: deno test
+- Build: `deno task npm:build` (uses `@marianmeres/npmbuild`)
+- Test: `deno test`
 - No external runtime dependencies
 
 ## Project Structure
@@ -29,12 +31,14 @@ Role-Based Access Control (RBAC) library with optional Attribute-Based Access Co
 ```
 src/
   mod.ts          # Entry point, re-exports rbac.ts
-  rbac.ts         # Core implementation (~600 lines)
+  rbac.ts         # Core implementation (~650 lines)
 tests/
-  rbac.test.ts    # Test suite (36 tests)
+  rbac.test.ts    # Test suite (65 tests)
 scripts/
   build-npm.ts    # NPM build script
 .npm-dist/        # Generated NPM distribution
+mcp.ts            # MCP tool definitions
+mcp-include.txt   # MCP description blurb
 ```
 
 ## Entry Points
@@ -45,76 +49,146 @@ scripts/
 ## Exported Types
 
 ```typescript
-// Main class
 class Rbac
 
-// Types
-type RbacRuleFunction = (subject: Record<string, any>, resource?: Record<string, any>, context?: Record<string, any>) => boolean
-interface RbacDump { roles: Record<string, ...>; groups: Record<string, ...> }
-interface RbacRoleInternal { permissions: Set<string>; memberOf: Set<string> }
-interface RbacGroupInternal { permissions: Set<string> }
+interface RbacSubject {
+    role: string | string[];
+    [key: string]: any;
+}
+
+type RbacRuleFunction<Subject, Resource, Context> =
+    (subject, resource?, context?) => boolean  // all generics default to permissive shapes
+
+interface RbacDump {
+    roles:  Record<string, Partial<Record<"permissions" | "memberOf", string[]>>>;
+    groups: Record<string, Partial<Record<"permissions" | "memberOf", string[]>>>;
+    rules?: string[];   // permission names that had rule chains at dump time
+}
+
+interface RbacRoleInternal  { permissions: Set<string>; memberOf: Set<string> }
+interface RbacGroupInternal { permissions: Set<string>; memberOf: Set<string> }
+interface RbacPermissionExplanation {
+    granted: boolean;
+    source:  "role" | "group" | null;
+    path:    string[];
+}
 ```
 
 ## Public API Summary
 
-### Rbac Class Methods
+### Constructor
+
+| Signature | Notes |
+|-----------|-------|
+| `new Rbac(dump?: string \| Partial<RbacDump>)` | Optional initial config (same as `Rbac.restore`) |
+
+### Role Management
 
 | Method | Signature | Returns |
 |--------|-----------|---------|
-| addRole | `(name: string, permissions?: string[], groupNames?: string[])` | `Rbac` |
-| removeRole | `(name: string)` | `Rbac` |
-| removeRolePermissions | `(name: string, permissions?: string[])` | `Rbac` |
-| hasRole | `(name: string)` | `boolean` |
+| addRole | `(name, permissions?, groupNames?)` | `Rbac` |
+| removeRole | `(name)` | `Rbac` |
+| removeRolePermissions | `(name, permissions?)` | `Rbac` |
+| hasRole | `(name)` | `boolean` |
 | getRoles | `()` | `string[]` |
-| addGroup | `(name: string, permissions?: string[])` | `Rbac` |
-| removeGroup | `(name: string)` | `Rbac` |
-| removeGroupPermissions | `(name: string, permissions?: string[])` | `Rbac` |
-| hasGroup | `(name: string)` | `boolean` |
+| getRoleGroups | `(name, transitive?)` | `string[]` |
+
+### Group Management
+
+| Method | Signature | Returns |
+|--------|-----------|---------|
+| addGroup | `(name, permissions?)` | `Rbac` |
+| removeGroup | `(name)` | `Rbac` |
+| removeGroupPermissions | `(name, permissions?)` | `Rbac` |
+| hasGroup | `(name)` | `boolean` |
 | getGroups | `()` | `string[]` |
-| addRoleToGroup | `(roleName: string, groupName: string)` | `Rbac` |
-| removeRoleFromGroup | `(roleName: string, groupName: string)` | `Rbac` |
-| getPermissions | `(roleName: string)` | `Set<string>` |
-| hasPermission | `(roleName: string, permission: string)` | `boolean` |
-| hasSomePermission | `(roleName: string, permissions: string[])` | `boolean` |
-| can | `(subject: {role: string, ...}, permission: string, resource?, context?)` | `boolean` |
-| addRule | `(permission: string, rule: RbacRuleFunction)` | `Rbac` |
-| removeRule | `(permission: string)` | `Rbac` |
-| hasRule | `(permission: string)` | `boolean` |
+| getGroupRoles | `(name)` | `string[]` |
+| getGroupParents | `(name)` | `string[]` |
+| getGroupChildren | `(name)` | `string[]` |
+
+### Associations
+
+| Method | Signature | Returns |
+|--------|-----------|---------|
+| addRoleToGroup | `(roleName, groupName)` | `Rbac` |
+| removeRoleFromGroup | `(roleName, groupName)` | `Rbac` |
+| addGroupToGroup | `(childName, parentName)` | `Rbac` |
+| removeGroupFromGroup | `(childName, parentName)` | `Rbac` |
+
+### Permission Checks
+
+| Method | Signature | Returns |
+|--------|-----------|---------|
+| hasPermission | `(roleName, permission)` | `boolean` |
+| hasSomePermission | `(roleName, permissions)` | `boolean` |
+| hasEveryPermission | `(roleName, permissions)` | `boolean` |
+| getPermissions | `(roleName)` | `Set<string>` |
+| explainPermission | `(roleName, permission)` | `RbacPermissionExplanation` |
+
+### ABAC
+
+| Method | Signature | Returns |
+|--------|-----------|---------|
+| can | `(subject, permission, resource?, context?)` | `boolean` |
+| addRule | `(permission, ruleFn)` | `Rbac` (replaces chain) |
+| appendRule | `(permission, ruleFn)` | `Rbac` (AND append) |
+| removeRule | `(permission)` | `Rbac` |
+| hasRule | `(permission)` | `boolean` |
 | getRules | `()` | `string[]` |
+| getMissingRules | `()` | `string[]` |
+
+### Serialization
+
+| Method | Signature | Returns |
+|--------|-----------|---------|
 | toJSON | `()` | `RbacDump` |
 | dump | `()` | `string` |
-| restore (static) | `(dump: string \| Partial<RbacDump>)` | `Rbac` |
+| clone | `()` | `Rbac` |
+| Rbac.restore (static) | `(dump)` | `Rbac` |
 
 ## Internal Data Structures
 
 ```typescript
-// Private fields in Rbac class
 #roles: Map<string, RbacRoleInternal>
-#groups: Map<string, RbacGroupInternal>
-#rules: Map<string, RbacRuleFunction>
+#groups: Map<string, RbacGroupInternal>              // groups also have memberOf
+#rules: Map<string, RbacRuleFunction[]>              // array = rule chain
+#expectedRules: Set<string>                          // populated from dump.rules
 ```
 
 ## Key Behaviors
 
-1. **Method chaining**: All mutating methods return `this`
-2. **Permission inheritance**: Roles inherit permissions from their groups
-3. **Group prerequisite**: Groups must exist before roles can reference them
-4. **Cascading removal**: Removing a group removes references from all roles
-5. **Permission deduplication**: Uses Set internally
-6. **Exact matching**: No wildcard expansion for permissions
-7. **ABAC evaluation order**: RBAC check first, then rule evaluation
-8. **Serialization limitation**: Rules (functions) are not serialized
+1. **Method chaining**: all mutating methods return `this`
+2. **Role inherits from groups** (direct `memberOf`)
+3. **Group inherits from groups** (via `addGroupToGroup`, transitive)
+4. **Group prerequisite**: groups must exist before being referenced
+5. **Cascading removal**: `removeGroup` cleans up role + group memberships
+6. **Cycle tolerance**: group-to-group cycles are skipped at traversal time,
+   not an error
+7. **Multi-role `can()`**: `subject.role` can be `string` or `string[]`
+8. **Rule chains**: `#rules` maps permission → array; `can()` applies AND
+9. **addRule vs appendRule**: `addRule` replaces the chain; `appendRule`
+   appends to it (creates if missing)
+10. **Permission deduplication**: internal `Set`
+11. **Exact matching**: no wildcard expansion
+12. **Serialization limitation**: rule functions are not serialized;
+    `RbacDump.rules` stores their permission names so callers can detect
+    missing rules via `getMissingRules()`
 
 ## Error Conditions
 
-- `addRole()` throws if referenced group doesn't exist
-- `addRoleToGroup()` throws if group doesn't exist
-- `restore()` throws on invalid/unparseable dump
+- `addRole(_, _, [missingGroup])` → throws
+- `addRoleToGroup(_, missingGroup)` → throws
+- `addGroupToGroup(missingChild, _)` or `(_, missingParent)` → throws
+- `addGroupToGroup(x, x)` → throws (self-membership)
+- `Rbac.restore(...)` / `new Rbac(dump)` → throws `Error` with `cause` on
+  invalid JSON or missing group references
+- Silent no-ops: `removeRolePermissions` / `removeRoleFromGroup` /
+  `removeGroupPermissions` / `removeGroupFromGroup` on non-existent targets
 
 ## Test Commands
 
 ```sh
-deno test              # Run all tests
+deno test              # Run all tests (65)
 deno test --watch      # Watch mode
 ```
 
@@ -129,29 +203,36 @@ deno task rpm          # Release minor and publish
 
 ## Code Style
 
-- Tabs for indentation
+- Tabs for indentation, 4-space indent width
 - 90 character line width
-- 4 space indent width
 - TypeScript strict mode
+- Private class fields use `#` prefix
 
 ## Common Modification Patterns
 
-### Adding a new method to Rbac class
+### Adding a new method
 
-1. Add method to `src/rbac.ts` class
-2. Add JSDoc with @param, @returns, @example
-3. Add explicit return type
-4. Add tests to `tests/rbac.test.ts`
-5. Update API.md and README.md if public API
+1. Add method to `src/rbac.ts` class with JSDoc (`@param`, `@returns`, `@example`)
+2. Explicit return type (no inference for public API)
+3. Add tests to `tests/rbac.test.ts`
+4. Update `API.md`, `README.md` (if public), and this file's tables
 
-### Adding new exported type
+### Adding a new exported type
 
 1. Add to `src/rbac.ts` with `export`
-2. Add JSDoc documentation
-3. Type is auto-exported via `src/mod.ts`
+2. Add JSDoc
+3. Auto-exported via `src/mod.ts`
+4. Document in `API.md` § Types and in the Exported Types block above
+
+### Changing serialization format
+
+Serialization is additive. New fields on `RbacDump` should be optional so old
+dumps still restore cleanly. New required fields on exported `Internal`
+interfaces are a BC break — document prominently.
 
 ## Related Documentation
 
 - [README.md](./README.md) - User documentation
 - [API.md](./API.md) - Complete API reference
+- [CLAUDE.md](./CLAUDE.md) - Quick context for Claude Code
 - [LICENSE](./LICENSE) - MIT license

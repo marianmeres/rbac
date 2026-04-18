@@ -9,16 +9,16 @@ Quick context for Claude Code.
 ## File Layout
 
 - `src/mod.ts` - Entry point (re-exports rbac.ts)
-- `src/rbac.ts` - Single-file implementation (~600 LOC)
-- `tests/rbac.test.ts` - 36 tests
+- `src/rbac.ts` - Single-file implementation (~650 LOC)
+- `tests/rbac.test.ts` - 65 tests
 - `deno.json` - Config and tasks
 
 ## Core Concepts
 
 1. **Permissions** - Strings like `"article:read"` (exact match, no wildcards)
-2. **Roles** - Have direct permissions + inherit from groups
-3. **Groups** - Reusable permission sets that roles can join
-4. **Rules** - Optional ABAC functions for fine-grained checks
+2. **Roles** - Direct permissions + inherit from groups
+3. **Groups** - Reusable permission sets; can inherit from other groups
+4. **Rules** - Optional ABAC rule **chains** (AND semantics) per permission
 
 ## Key Commands
 
@@ -34,30 +34,43 @@ deno task publish   # Publish to JSR + NPM
 const rbac = new Rbac();
 
 // Groups first, then roles
-rbac.addGroup("admins", ["*:*"]);
+rbac.addGroup("admins", ["system:admin"]);
 rbac.addRole("admin", [], ["admins"]);
 
+// Group hierarchy
+rbac.addGroup("viewers", ["article:read"]);
+rbac.addGroup("editors", ["article:update"]);
+rbac.addGroupToGroup("editors", "viewers");
+
 // Check permissions
-rbac.hasPermission("admin", "*:*");           // boolean
-rbac.hasSomePermission("admin", ["a", "b"]);  // boolean (OR)
-rbac.getPermissions("admin");                 // Set<string>
+rbac.hasPermission("admin", "system:admin");       // boolean
+rbac.hasSomePermission("admin", ["a", "b"]);       // OR
+rbac.hasEveryPermission("admin", ["a", "b"]);      // AND
+rbac.getPermissions("admin");                      // Set<string>
+rbac.explainPermission("admin", "system:admin");   // trace source
 
-// ABAC (optional)
-rbac.addRule("article:update", (subject, resource, context) => {
-  return resource?.authorId === subject.id;
+// ABAC (optional) — rule chains are AND
+rbac.addRule("article:update", (subject, resource) => {
+    return resource?.authorId === subject.id;
 });
-rbac.can({ role: "author", id: "x" }, "article:update", { authorId: "x" });
+rbac.appendRule("article:update", duringBusinessHours);
 
-// Serialize (rules NOT included)
+// Multi-role subject supported
+rbac.can({ role: ["author"], id: "x" }, "article:update", { authorId: "x" });
+
+// Serialize (rule functions NOT included; permission names ARE)
 const dump = rbac.dump();
-const restored = Rbac.restore(dump);
+const restored = Rbac.restore(dump);      // or: new Rbac(dump)
+restored.getMissingRules();               // permissions whose rules need re-adding
 ```
 
 ## Important Constraints
 
-- Groups must exist before roles reference them
+- Groups must exist before roles or other groups reference them
 - Permission matching is exact (no wildcard expansion)
-- Rules are functions - not serialized by dump()
+- Rule functions are not serialized by `dump()` — their permission names are
+- Rule chains use AND semantics — every rule must return `true`
+- Group-to-group cycles are tolerated at query time (skipped, not error)
 - All mutating methods return `this` for chaining
 
 ## Code Style
